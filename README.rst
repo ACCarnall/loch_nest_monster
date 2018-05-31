@@ -1,5 +1,6 @@
-TestNest
-========
+The Loch Nest Monster
+=====================
 
-An extremely basic nested sampling package I wrote to familiarise myself with the concepts. Definitely not recommended for any practical applications in its current form. Copes with 2D unimodal problems.
+An ancient and mysterious nested sampling algorithm.
 
+This is an extremely basic package I wrote to learn more about the concepts.
