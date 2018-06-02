@@ -1,6 +1,8 @@
 from __future__ import print_function, division, absolute_import
 
 import numpy as np
+import time
+from scipy.misc import logsumexp
 
 """
 Missing things:
@@ -8,20 +10,21 @@ Missing things:
  - Saving outputs.
  - Ability to resume from previously generated outputs.
  - Calcualtion of uncertainty on evidence value.
+ - Efficient bounding options.
 """
-
 
 class nested_sampler:
     """ A basic functioning nested sampling class. """
 
-    def __init__(self, loglike, prior_trans, ndim, n_live=400,
-                 maxiter=None, prefix="", tol_dlogz=0.01):
+    def __init__(self, lnlike, prior_trans, ndim, n_live=400,
+                 prefix="", tol_dlnz=0.01, method="box"):
 
         # The user-provided likelihood and prior transform functions.
-        self.user_loglike = loglike
+        self.user_lnlike = lnlike
         self.user_prior_trans = prior_trans
 
-        self.tol_dlogz = tol_dlogz
+        self.method = method
+        self.tol_dlnz = tol_dlnz
 
         # The prefix with which all output files will be saved.
         self.prefix = prefix
@@ -32,42 +35,44 @@ class nested_sampler:
         # The number of live points.
         self.n_live = n_live
 
-        # Set the maximum number of iterations the code will run to.
-        if maxiter is None:
-            self.maxiter = 100000
-
-        else:
-            self.maxiter = maxiter
-
         # The number of function calls which have been performed,
         # regardless of whether the point was accepted.
         self.n_calls = 0
 
-        # The number of successful replaements whch have taken place.
+        # The number of successful replacements whch have been made.
         self.n_samples = 0
 
-        # The natural log of the Bayesian evidence.
+        # The natural ln of the Bayesian evidence.
         self.lnz = -np.inf
 
-        # A record of the log-likelihood value at each value of X.
-        self.dead_loglike = np.zeros(self.maxiter)
-        self.post_wts = np.zeros(self.maxiter)
+        # An approximate upper bound on the remaining evidence.
+        self.dlnz = np.inf
+
+        # A record of the ln-likelihood for each dead point.
+        self.dead_lnlike = []
+
+        # A record of the cube position for each dead point.
+        self.dead_cubes = []
+
+        # A record of the time taken for the last few likelihood calls.
+        self.call_times = []
 
         # Randomly draw initial live point positions.
         self.get_initial_points()
 
     def prior_trans(self, input_cube):
         """ Wrapper on the user's prior transform function. """
+
         cube = np.copy(input_cube)
 
         return self.user_prior_trans(cube)
 
-    def loglike(self, input_param):
-        """ Wrapper on the user's log-likelihood function. """
+    def lnlike(self, input_param):
+        """ Wrapper on the user's ln-likelihood function. """
 
         param = np.copy(input_param)
 
-        return self.user_loglike(param)
+        return self.user_lnlike(param)
 
     def get_initial_points(self):
         """ Sets the initial state of the sampler by randomly
@@ -79,108 +84,127 @@ class nested_sampler:
         # Positions of live points in parameter space (or prior volume).
         self.live_params = np.zeros((self.n_live, self.ndim))
 
-        # Current log-likelihood value associated with each live point.
-        self.live_loglike = np.zeros(self.n_live)
+        # Current ln-likelihood value associated with each live point.
+        self.live_lnlike = np.zeros(self.n_live)
 
         # Set the initial values for each live point.
         for i in range(self.n_live):
             self.live_cubes[i, :] = np.random.rand(self.ndim)
             self.live_params[i, :] = self.prior_trans(self.live_cubes[i, :])
-            self.live_loglike[i] = self.loglike(self.live_params[i, :])
+            self.live_lnlike[i] = self.lnlike(self.live_params[i, :])
 
-    def draw_new_point(self, mode="box"):
+    def draw_new_point(self):
         """ Selects a new point from parameter space. The objective here
         is to draw at random from the region of the prior volume with
         likelihood greater than the current worst live point. This
         function is critical for the efficiency of the code. """
 
-        if mode == "box":
+        if self.method == "box":
             maxp = np.max(self.live_cubes, axis=0)
             minp = np.min(self.live_cubes, axis=0)
 
             new_cube = (maxp - minp)*np.random.rand(self.ndim) + minp
 
-        elif mode == "uniform":
+        elif self.method == "uniform":
             new_cube = np.random.rand(self.ndim)
 
         return new_cube
 
-    def _logvol_i(self, i):
-        return -i/float(self.n_live)
+    def _lnvolume(self, i):
+        return -i/self.n_live
 
-    def _get_random_t(self, i):
-        return np.random.rand(self.ndim).max()
+    def _lnweight(self):
+        vol_low = self._lnvolume(self.n_samples+1)
+        vol_high = self._lnvolume(self.n_samples-1)
 
-    def _logwt_i(self, i):
-        vol_iplus1 = np.exp(self._logvol_i(self.n_samples+1))
-        vol_isub1 = np.exp(self._logvol_i(self.n_samples-1))
-
-        return np.log(vol_isub1 - vol_iplus1) + np.log(0.5)
+        return logsumexp(a=[vol_high, vol_low], b=[0.5, -0.5])
 
     def run(self):
-        """ Run the sampler. This function uses the nested samplin
-        procedure introduced by Skilling (2006). """
-        """
-        f = open(self.prefix + "dead_points.txt", "w")
-        f.write("parameter_1_value parameter_2_value relative_logwt")
-        print("\n Beginning nested sampling")
-        print("-----------------------------------")
-        """
-        dlogz = np.inf
+        """ Run the sampler. """
 
-        while dlogz > self.tol_dlogz:
+        print("\nSearching for Loch Nest Monster...\n")
+
+        while self.dlnz > self.tol_dlnz:
             self.n_samples += 1
 
-            # Calculate the log weight and log volume at this step.
-            logwt = self._logwt_i(self.n_samples)
-            logvol = self._logvol_i(self.n_samples)
+            # Calculate the ln weight and ln volume at this step.
+            lnweight = self._lnweight()
+            lnvolume = self._lnvolume(self.n_samples)
 
             # Index of the lowest likelihood live point.
-            worst = self.live_loglike.argmin()
+            worst = self.live_lnlike.argmin()
 
             # Add the worst live point to the dead points array.
-            self.dead_loglike[self.n_samples] = self.live_loglike[worst]
-            self.post_wts[self.n_samples] = logwt + self.live_loglike[worst]
+            self.dead_lnlike.append(self.live_lnlike[worst])
+            self.dead_cubes.append(self.live_cubes[worst])
 
             # Add the lnz contribution from the worst live point to lnz.
-            self.lnz = np.logaddexp(self.lnz, self.post_wts[self.n_samples])
+            self.lnz = np.logaddexp(self.lnz, lnweight + self.dead_lnlike[-1])
 
-            # f.write(str("%.5f" % self.live_params[worst][0]) + "\t"
-            #        + str("%.5f" % self.live_params[worst][1]) + "\t"
-            #        + str("%.5f" % (logwt + self.live_loglike[worst])) + "\n")
+            new_lnlike = -np.inf
 
-            # Sample until we find a point with better loglike.
-            worst_param = self.live_params[worst]
-
-            while self.live_loglike[worst] >= self.loglike(worst_param):
-                new_live_cube = self.draw_new_point()
-                self.live_params[worst] = self.prior_trans(new_live_cube)
+            # Sample until we find a point with better lnlike.
+            while self.live_lnlike[worst] >= new_lnlike:
+                new_cube = self.draw_new_point()
+                new_params = self.prior_trans(new_cube)
+                time_start = time.time()
+                new_lnlike = self.lnlike(new_params)
+                self.call_times.append(time.time() - time_start)
                 self.n_calls += 1
 
-            # Update the worst live point to the new value.
-            self.live_cubes[worst, :] = np.copy(new_live_cube)
-            self.live_loglike[worst] = self.loglike(self.live_params[worst])
+            self.live_cubes[worst, :] = np.copy(new_cube)
+            self.live_params[worst, :] = np.copy(new_params)
+            self.live_lnlike[worst] = np.copy(new_lnlike)
 
             # Estimate upper bound on evidence in the remaining volume
-            dlogz = logvol + self.live_loglike.max() - self.lnz
+            self.dlnz = lnvolume + self.live_lnlike.max() - self.lnz
 
             # Print progress of the sampler
-            if not self.n_samples % 50:
-                print("Number of accepted samples:", self.n_samples)
-                print("Number of likelihood calls:", self.n_calls)
-                print("Sampling efficiency:", self.n_samples/self.n_calls)
-                print("lnZ:", np.round(self.lnz, 5))
-                print("dlnZ:", np.round(dlogz, 5))
-                print("-----------------------------------")
+            if not self.n_samples % 500:
+                self.print_progress()
 
-        # Extract only the used slice from the arrays.
-        self.dead_loglike = self.dead_loglike[1:self.n_samples+1]
-        self.post_wts = self.post_wts[1:self.n_samples+1]
+        self.print_progress()
 
-        # Normalise the weights.
-        self.post_wts -= self.lnz
+        print("\nSampling is complete!\n")
 
-        print("Sampling is complete, best fitting parameters:",
-              self.live_params[np.argmax(self.live_loglike), :], "\n")
+        self.calc_post_weights()
+        
+    def print_progress(self):
+        print("{:<30}".format("Number of accepted samples:"),
+              "{:>10}".format(self.n_samples))
 
-        # f.close()
+        print("{:<30}".format("Number of likelihood calls:"),
+              "{:>10}".format(self.n_calls))
+
+        print("{:<30}".format("Sampling efficiency:"),
+              "{:>10.4f}".format(self.n_samples/self.n_calls))
+
+        print("{:<30}".format("Mean lnlike call time (ms):"),
+              "{:>10.4f}".format(1000*np.mean(self.call_times)))
+
+        print("{:<30}".format("Current lnZ:"),
+              "{:>10.4f}".format(self.lnz))
+
+        print("{:<30}".format("Estimated Remaining lnZ:"),
+              "{:>10.4f}".format(self.dlnz))
+
+        print("-----------------------------------------")
+
+        self.call_times = []
+
+    def calc_post_weights(self):
+        i_vals = np.arange(self.n_samples+2)
+
+        lnvolumes = -i_vals/self.n_live
+
+        lnvolume_lims = np.array(zip(lnvolumes[:-2], lnvolumes[2:]))
+
+        lnweights = logsumexp(a=lnvolume_lims, b=[0.5, -0.5], axis=1)
+
+        lnweights += np.array(self.dead_lnlike)
+
+        lnweights -= self.lnz
+
+        self.weights = np.exp(lnweights)
+
+

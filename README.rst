@@ -3,4 +3,6 @@ The Loch Nest Monster
 
 An ancient and mysterious nested sampling algorithm.
 
-This is an extremely basic package I wrote to learn more about the concepts.
+A package I'm writing to learn more about nested sampling.
+
+Works on basic problems!
