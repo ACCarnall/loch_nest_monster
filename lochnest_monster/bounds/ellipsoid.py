@@ -2,6 +2,7 @@ from __future__ import print_function, division, absolute_import
 
 import numpy as np
 
+from scipy.linalg import cholesky
 
 class ellipsoid(object):
 
@@ -12,7 +13,11 @@ class ellipsoid(object):
         self.ndim = self.points.shape[1]
         self.cov = np.cov(self.points.T)
         self.centroid = np.mean(self.points, axis=0)
-        self.eigenvals, self.eigenvecs = np.linalg.eigh(self.cov)
+        #self.eigenvals, self.eigenvecs = np.linalg.eigh(self.cov)
+
+        #self.eigenvals[0], self.eigenvals[1] = self.eigenvals[1], self.eigenvals[0]
+        #self.eigenvecs[0], self.eigenvecs[1] = self.eigenvecs[1], self.eigenvecs[0]
+
         self.cov_inv = np.linalg.inv(self.cov)
 
         # Caclulate the expansion factor needed to enclose all points
@@ -24,21 +29,13 @@ class ellipsoid(object):
             magnitudes[i] = np.dot(points_cent[i, :],
                                    np.dot(self.cov_inv, points_cent[i, :]))
 
-        self.expansion = self.exp_factor*np.sqrt(magnitudes.max())
+        self.expansion = np.sqrt(magnitudes.max())
+        self.expansion *= self.exp_factor**(1/self.ndim)
 
-        # Calculate the transformation matrix from sphere to ellipse.
-        eigenmatrix = np.zeros(self.cov.shape)
-        c_diag_sqrt = np.zeros(self.cov.shape)
-
-        for i in range(self.cov.shape[0]):
-            eigenmatrix[:,i] = self.eigenvecs[i]
-            c_diag_sqrt[i,i] = np.sqrt(self.eigenvals[i])
-
-        self.sphere_tform = self.expansion*np.dot(eigenmatrix.T,
-                                                  c_diag_sqrt)
+        self.sphere_tform = cholesky(self.cov, lower=True)
 
     def sample_sphere(self):
-        """ Draw a random point from within a n-dimensional hypersphere. """
+        """ Draw a random point from within a n-dimensional unit hypersphere. """
 
         n_gauss = np.random.randn(self.ndim)
         n_sphere = n_gauss/np.sqrt(np.sum(n_gauss**2))
@@ -51,6 +48,7 @@ class ellipsoid(object):
         """ Draw a random point uniformly from within the ellipse. """
 
         point = (np.dot(self.sphere_tform, self.sample_sphere()))
+        point *= self.expansion
         point += self.centroid
 
         return point
@@ -63,8 +61,8 @@ class ellipsoid(object):
         eval0 = self.eigenvals[dim0]
         eval1 = self.eigenvals[dim1]
 
-        pos = (np.sqrt(eval0)*np.cos(theta)*self.eigenvecs[:,dim0]
-               + np.sqrt(eval1)*np.sin(theta)*self.eigenvecs[:, dim1]) 
+        pos = (np.sqrt(eval0)*np.cos(theta)*self.eigenvecs[dim0]
+               + np.sqrt(eval1)*np.sin(theta)*self.eigenvecs[dim1]) 
 
         pos *= self.expansion
 

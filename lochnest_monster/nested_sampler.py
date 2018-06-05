@@ -4,6 +4,7 @@ import numpy as np
 import time
 from scipy.misc import logsumexp
 import matplotlib.pyplot as plt
+import matplotlib as mpl
 import corner
 import sys
 
@@ -11,11 +12,10 @@ from . import bounds
 
 """
 Missing things:
- - Function to generate equally-weighted posterior samples.
  - Saving outputs.
  - Ability to resume from previously generated outputs.
- - Calcualtion of uncertainty on evidence value.
- - Efficient bounding options.
+ - Calcualtion of uncertainty on evidence value/posterior.
+ - multi-ellipsoid sampling.
 """
 
 class nested_sampler(object):
@@ -75,22 +75,39 @@ class nested_sampler(object):
 
         if self.visualise:
             plt.ion()
-            self.fig = plt.figure()
-            self.ax = self.fig.add_subplot(111)
-            self.ax.set_xlim(0., 1.)
-            self.ax.set_ylim(0., 1.)
-            self.plot_live = self.ax.scatter(self.live_cubes[:,0],
-                                             self.live_cubes[:,1],
-                                             s=2, color="red", zorder=9)
+            self.fig = plt.figure(figsize=(9, 8))
 
-            self.plot_prop = self.ax.scatter(0., 0., s=3,
-                                            color="blue", zorder=8)
+            gs = mpl.gridspec.GridSpec(self.ndim, self.ndim, wspace=0., hspace=0.)
 
-            self.bound_plot = self.ax.plot(0., 0., color="black", zorder=10)[0]
+            self.axes = []
+            self.plot_l = []
+            self.plot_p = []
 
+            for i in range(self.ndim):
+                for j in range(self.ndim):
+                    if i < j:
+                        self.axes.append(plt.subplot(gs[j,i]))
+                        self.axes[-1].set_xlim(0., 1.)
+                        self.axes[-1].set_ylim(0., 1.)
+                        self.axes[-1].set_xticks([])
+                        self.axes[-1].set_yticks([])
+                        self.plot_l.append(self.axes[-1].scatter(self.live_cubes[:,i],
+                                                                 self.live_cubes[:,j],
+                                                                 s=2, color="red",
+                                                                 zorder=9))
+
+                        self.plot_p.append(self.axes[-1].scatter(0., 0., s=3,
+                                                                color="blue",
+                                                                zorder=8))
+            
+            if self.ndim == 2:
+                self.bound_plot = self.axes[0].plot(0., 0., color="black", zorder=10)[0]
+            
             self.fig.canvas.draw()
-            plt.pause(0.0001)
+            plt.pause(1.)
             plt.show(block=False)
+            #raw_input()
+
 
     def prior_trans(self, input_cube):
         """ Wrapper on the user's prior transform function. """
@@ -132,6 +149,8 @@ class nested_sampler(object):
             self.bound = getattr(bounds,
                                  self.bound_type)(self.live_cubes,
                                                   exp_factor=self.exp_factor)
+
+            #self.bound.plot()
 
     def draw_new_point(self):
         """ Selects a new point from the prior within the bound. """
@@ -263,26 +282,30 @@ class nested_sampler(object):
         if self.visualise:
             self.progress_plotter()
 
-    def progress_plotter(self):
+    def progress_plotter(self, dim0=0, dim1=1):
+
+        prop_arr = np.zeros((len(self.proposed), self.ndim))
+        for i in range(len(self.proposed)):
+            prop_arr[i,:] = self.proposed[i]
+
         try:
-            self.plot_live.set_offsets(np.c_[self.live_cubes[:,0],
-                                             self.live_cubes[:,1]])
+            n = 0
+            for i in range(self.ndim):
+                for j in range(self.ndim):
+                    if i < j:
+                        self.plot_l[n].set_offsets(np.c_[self.live_cubes[:,i],
+                                                         self.live_cubes[:,j]])
+                        self.plot_p[n].set_offsets(np.c_[prop_arr[:,i],
+                                                         prop_arr[:,j]])
+                        n += 1
 
-            prop_arr = np.zeros((len(self.proposed), self.ndim))
-            for i in range(len(self.proposed)):
-                prop_arr[i,:] = self.proposed[i]
-
-
-            self.plot_prop.set_offsets(prop_arr)
-
-
-            pos = self.bound.get_2d_coords()
-
-            self.bound_plot.set_xdata(pos[:,0])
-            self.bound_plot.set_ydata(pos[:,1])
+            if self.ndim == 2:
+                pos = self.bound.get_2d_coords()
+                self.bound_plot.set_xdata(pos[:,0])
+                self.bound_plot.set_ydata(pos[:,1])
 
             self.fig.canvas.draw()
-            plt.pause(0.0001)
+            plt.pause(1.)
             #raw_input()
 
         except KeyboardInterrupt:

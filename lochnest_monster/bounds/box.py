@@ -14,15 +14,19 @@ class box(object):
 
         self.lower = np.min(self.points, axis=0)
         self.upper = np.max(self.points, axis=0)
+
         self.centroid = (self.upper + self.lower)/2
 
-        self.lower -= (self.centroid - self.lower)*(exp_factor-1)
-        self.upper += (self.upper - self.centroid)*(exp_factor-1)
+        radius_factor = self.exp_factor**(1/self.ndim)
+
+        self.lower -= (self.centroid - self.lower)*(radius_factor-1)
+        self.upper += (self.upper - self.centroid)*(radius_factor-1)
 
         self.lower[self.lower < 0] = 0.
         self.upper[self.upper > 1] = 1.
 
         self.widths = self.upper - self.lower
+        print(self.widths)
 
     def draw_point(self):
         return self.widths*np.random.rand(self.ndim) + self.lower
