@@ -6,22 +6,18 @@ from scipy.linalg import cholesky
 
 class ellipsoid(object):
 
-    def __init__(self, points, exp_factor=1.):
+    def __init__(self, points, expansion=1.):
 
         self.points = points
-        self.exp_factor = exp_factor
-        self.ndim = self.points.shape[1]
+        self.n_dim = self.points.shape[1]
+
+        self.expansion = expansion
         self.cov = np.cov(self.points.T)
         self.centroid = np.mean(self.points, axis=0)
-        #self.eigenvals, self.eigenvecs = np.linalg.eigh(self.cov)
-
-        #self.eigenvals[0], self.eigenvals[1] = self.eigenvals[1], self.eigenvals[0]
-        #self.eigenvecs[0], self.eigenvecs[1] = self.eigenvecs[1], self.eigenvecs[0]
 
         self.cov_inv = np.linalg.inv(self.cov)
 
-        # Caclulate the expansion factor needed to enclose all points
-        # and increase this by exp_factor.
+        # Find the most distant point from the centroid.
         magnitudes = np.zeros(self.points.shape[0])
         points_cent = self.points - self.centroid
 
@@ -29,58 +25,27 @@ class ellipsoid(object):
             magnitudes[i] = np.dot(points_cent[i, :],
                                    np.dot(self.cov_inv, points_cent[i, :]))
 
-        self.expansion = np.sqrt(magnitudes.max())
-        self.expansion *= self.exp_factor**(1/self.ndim)
+        max_radial_dist = np.sqrt(magnitudes.max())
+        self.expand_factor = max_radial_dist*self.expansion**(1/self.n_dim)
 
         self.sphere_tform = cholesky(self.cov, lower=True)
 
-    def sample_sphere(self):
-        """ Draw a random point from within a n-dimensional unit hypersphere. """
+    def sample_sphere(self, n=1):
+        """ Draw n random points from an N-dimensional unit sphere. """
 
-        n_gauss = np.random.randn(self.ndim)
-        n_sphere = n_gauss/np.sqrt(np.sum(n_gauss**2))
+        points_gauss = np.random.randn(n, self.n_dim)
+        gauss_radii = np.sqrt(np.sum(points_gauss**2, axis=1))
+        points_sphere = points_gauss/np.expand_dims(gauss_radii, 1)
 
-        radius = np.random.rand()**(1./self.ndim)
+        radius = np.expand_dims(np.random.rand(n)**(1/self.n_dim), 1)
 
-        return n_sphere*radius
+        return np.squeeze(points_sphere*radius)
 
     def draw_point(self):
         """ Draw a random point uniformly from within the ellipse. """
 
-        point = (np.dot(self.sphere_tform, self.sample_sphere()))
-        point *= self.expansion
+        point = np.dot(self.sphere_tform, self.sample_sphere())
+        point *= self.expand_factor
         point += self.centroid
 
         return point
-
-    def get_2d_coords(self, dim0=0, dim1=1):
-        """ Return a 2D array of the coordinates to make a 2D plot. """
-
-
-        theta = np.expand_dims(np.arange(0., 2*np.pi+0.02, 0.01), 1)
-        eval0 = self.eigenvals[dim0]
-        eval1 = self.eigenvals[dim1]
-
-        pos = (np.sqrt(eval0)*np.cos(theta)*self.eigenvecs[dim0]
-               + np.sqrt(eval1)*np.sin(theta)*self.eigenvecs[dim1]) 
-
-        pos *= self.expansion
-
-        pos[:,0] += self.centroid[dim0]
-        pos[:,1] += self.centroid[dim1]
-
-        return pos
-
-    def plot(self, dim0=0, dim1=1):
-        """ Plot a 2D projection. """
-
-        import matplotlib.pyplot as plt
-
-        plt.figure()
-        pos = self.get_2d_coords(dim0=dim0, dim1=dim1)
-        plt.scatter(self.points[:,0], self.points[:,1])
-        plt.plot(pos[:,0], pos[:,1], color="black", zorder=10)
-        plt.xlim(0., 1.)
-        plt.ylim(0., 1.)
-        plt.show()
-

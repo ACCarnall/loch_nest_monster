@@ -5,8 +5,16 @@ import corner
 import lochnest_monster as nesty
 
 
-def make_fake_data_linear(x, param, sigma=None):
+def lnprob(param):
+    y_model = make_fake_data_linear(x, param)
+    return -0.5*np.sum(((y - y_model)/y_err)**2)
 
+
+def prior_transform(cube):
+    return 20.*cube-10.
+
+
+def make_fake_data_linear(x, param, sigma=None):
     m = param[0]
     c = param[1]
 
@@ -20,15 +28,13 @@ def make_fake_data_linear(x, param, sigma=None):
     return y
 
 
+# Make some fake straight line data to fit
 x = np.arange(0., 20., 2.)
-
-true_param = [1.5, 5.]  # Gradient, intercept.
+true_param = [1.5, 5.]  # Gradient, intercept
 y, y_err = make_fake_data_linear(x, true_param, 1.0)
 
-
-# Make a plot of the fake data.
+# Make a plot of the fake data
 plt.figure()
-
 plt.errorbar(x, y, yerr=y_err, lw=1.0, linestyle=" ",
              capsize=3, capthick=1, color="black")
 
@@ -37,18 +43,15 @@ plt.scatter(x, y, color="blue", s=25, zorder=4, linewidth=1,
 
 plt.show()
 
+# Set up the sampler and sample the posterior
+sampler = nesty.ellipsoid_sampler(lnprob, prior_transform, len(true_param),
+                                  verbose=True, live_plot=False, n_live=400)
 
-def lnprob(param):
-    y_model = make_fake_data_linear(x, param)
-    return -0.5*np.sum(((y - y_model)/y_err)**2)
+# Try out the nball_sampler and box_sampler,
+# also try setting live_plot to True.
 
-def prior_transform(cube):
-    return 20.*cube-10.
-
-sampler = nesty.nested_sampler(lnprob, prior_transform, len(true_param),
-                               visualise=True, bound_type="nballs",
-                               n_live=1000, exp_factor=1.25)
 sampler.run()
 
+# Make a corner plot of the results
 corner.corner(sampler.results["samples_eq"])
 plt.savefig("example_corner.pdf", bbox_inches="tight")
