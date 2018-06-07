@@ -21,93 +21,93 @@ Missing things:
 class nested_sampler(object):
     """ A basic functioning nested sampling class. """
 
-    def __init__(self, lnlike, prior_trans, ndim, n_live=400,
-                 prefix="", stop_frac=0.99, bound_type="unitcube",
-                 visualise=False, verbose=True, exp_factor=1.25):
+    def __init__(self, lnlike, prior_trans, ndim, n_live=200,
+                 prefix="", stop_frac=0.9, bound_type="nballs",
+                 visualise=True, verbose=True, exp_factor=1.25,
+                 fill_factor=0.9, k=4):
 
-        # The user-provided likelihood and prior transform functions.
         self.user_lnlike = lnlike
         self.user_prior_trans = prior_trans
-
         self.bound_type = bound_type
         self.stop_frac = stop_frac
         self.verbose = verbose
         self.visualise = visualise
         self.exp_factor = exp_factor
-
-        # The prefix with which all output files will be saved.
+        self.fill_factor = fill_factor
         self.prefix = prefix
-
-        # The dimensionality of the parameter space.
         self.ndim = ndim
-
-        # The number of live points.
         self.n_live = n_live
+        self.update_interval = int(0.1*self.n_live)
+        self.k = k
 
-        # The number of function calls which have been performed,
-        # regardless of whether the point was accepted.
-        self.n_calls = 0
-
-        # The number of successful replacements whch have been made.
-        self.n_samples = 0
-
-        self.efficiency = 1.
-
-        # The natural logarithm of the Bayesian evidence.
-        self.lnz = -np.inf
-
-        # An approximate upper bound on the remaining lnz.
-        self.z_frac = 0.
+        self.n_calls = 0  # number of likelihood calls made
+        self.n_samples = 0  # no of successful replacements made
+        self.efficiency = 1. # no of replacements/no of calls
+        self.lnz = -np.inf  # the natural logarithm of the evidence.
+        self.z_frac = 0.  # approximate upper bound on the remaining lnz
 
         self.dead_lnlike = []
         self.dead_cubes = []
         self.dead_params = []
         self.lnweights = []
-
         self.call_times = []
 
-        # Randomly draw initial live point positions.
-        self.get_initial_points()
+        self.get_initial_points()  # randomly draw initial live points
 
-        self.bound = bounds.unitcube(self.live_cubes)
+        # start with unit cube bound
+        n_to_gen = int(10*self.update_interval/self.efficiency)
+        self.bound = bounds.nballs(self.live_cubes, n_to_gen=n_to_gen, k=self.k)  
 
         self.proposed = []
 
+        if self.bound_type == "nballs":
+            self.exp_factor = 0.2
+            ff = 0.
+
+            while ff < self.fill_factor:
+                ff = bounds.calc_nballs_filling_factor(self.n_live, self.ndim,
+                                                       self.exp_factor, k=self.k)
+                self.exp_factor += 0.05
+            print("Using expansion factor of", self.exp_factor)
+
         if self.visualise:
-            plt.ion()
-            self.fig = plt.figure(figsize=(9, 8))
+            self.set_up_live_plot()
 
-            gs = mpl.gridspec.GridSpec(self.ndim, self.ndim, wspace=0., hspace=0.)
+    def set_up_live_plot(self):
+        """ Set up live plotting of the sampler's progress. """
 
-            self.axes = []
-            self.plot_l = []
-            self.plot_p = []
+        plt.ion()
+        self.fig = plt.figure(figsize=(9, 8))
 
-            for i in range(self.ndim):
-                for j in range(self.ndim):
-                    if i < j:
-                        self.axes.append(plt.subplot(gs[j,i]))
-                        self.axes[-1].set_xlim(0., 1.)
-                        self.axes[-1].set_ylim(0., 1.)
-                        self.axes[-1].set_xticks([])
-                        self.axes[-1].set_yticks([])
-                        self.plot_l.append(self.axes[-1].scatter(self.live_cubes[:,i],
-                                                                 self.live_cubes[:,j],
-                                                                 s=2, color="red",
-                                                                 zorder=9))
+        gs = mpl.gridspec.GridSpec(self.ndim, self.ndim, wspace=0., hspace=0.)
 
-                        self.plot_p.append(self.axes[-1].scatter(0., 0., s=3,
-                                                                color="blue",
-                                                                zorder=8))
-            
-            if self.ndim == 2:
-                self.bound_plot = self.axes[0].plot(0., 0., color="black", zorder=10)[0]
-            
-            self.fig.canvas.draw()
-            plt.pause(1.)
-            plt.show(block=False)
-            #raw_input()
+        self.axes = []
+        self.plot_l = []
+        self.plot_p = []
 
+        for i in range(self.ndim):
+            for j in range(self.ndim):
+                if i < j:
+                    self.axes.append(plt.subplot(gs[j,i]))
+                    self.axes[-1].set_xlim(0., 1.)
+                    self.axes[-1].set_ylim(0., 1.)
+                    self.axes[-1].set_xticks([])
+                    self.axes[-1].set_yticks([])
+                    self.plot_l.append(self.axes[-1].scatter(self.live_cubes[:,i],
+                                                             self.live_cubes[:,j],
+                                                             s=2, color="red",
+                                                             zorder=9))
+
+                    self.plot_p.append(self.axes[-1].scatter(0., 0., s=3,
+                                                            color="blue",
+                                                            zorder=8))
+        
+        #if self.ndim == 2:
+        #    self.bound_plot = self.axes[0].plot(0., 0., color="black", zorder=10)[0]
+        
+        self.fig.canvas.draw()
+        plt.pause(1.)
+        plt.show(block=False)
 
     def prior_trans(self, input_cube):
         """ Wrapper on the user's prior transform function. """
@@ -145,12 +145,10 @@ class nested_sampler(object):
     def update_bound(self):
         """ Update the bounding object to draw points within. """
 
-        if not self.n_samples % 100:
-            self.bound = getattr(bounds,
-                                 self.bound_type)(self.live_cubes,
-                                                  exp_factor=self.exp_factor)
-
-            #self.bound.plot()
+        if not self.n_samples % self.update_interval:
+            n_to_gen = int(10*self.update_interval/self.efficiency)
+            self.bound = bounds.nballs(self.live_cubes, n_to_gen=n_to_gen,
+                                       k=self.k) 
 
     def draw_new_point(self):
         """ Selects a new point from the prior within the bound. """
@@ -224,7 +222,7 @@ class nested_sampler(object):
             self.efficiency = self.n_samples/self.n_calls
 
             # Print progress of the sampler
-            if self.verbose and not self.n_samples % 100:
+            if self.verbose and not self.n_samples % self.update_interval:
                 self.print_progress()
                 self.proposed = []
 
@@ -257,6 +255,10 @@ class nested_sampler(object):
         self.results["samples_eq"] = self.results["samples"][choices, :]
 
     def print_progress(self):
+        """ Print the current progress of the sampler. """
+
+        #bound_vol = self.bound.calc_volume()
+
         print("{:<30}".format("Number of accepted samples:"),
               "{:>10}".format(self.n_samples))
 
@@ -274,6 +276,12 @@ class nested_sampler(object):
 
         print("{:<30}".format("Fraction of total Z"),
               "{:>10.4f}".format(self.z_frac))
+
+        print("{:<30}".format("Ln-volume remaining"),
+              "{:>10.4f}".format(self._lnvolume(self.n_samples)))
+
+        #print("{:<30}".format("Prior volume in bound"),
+        #      "{:>10.4f}".format(bound_vol))
 
         print("-----------------------------------------")
 
@@ -298,15 +306,15 @@ class nested_sampler(object):
                         self.plot_p[n].set_offsets(np.c_[prop_arr[:,i],
                                                          prop_arr[:,j]])
                         n += 1
-
+            """
             if self.ndim == 2:
                 pos = self.bound.get_2d_coords()
                 self.bound_plot.set_xdata(pos[:,0])
                 self.bound_plot.set_ydata(pos[:,1])
-
+            """
             self.fig.canvas.draw()
             plt.pause(1.)
             #raw_input()
-
+            
         except KeyboardInterrupt:
             sys.exit("killed.")        

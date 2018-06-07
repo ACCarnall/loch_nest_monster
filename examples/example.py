@@ -46,7 +46,7 @@ def prior_transform(cube):
     return 20.*cube-10.
 
 sampler = nesty.nested_sampler(lnprob, prior_transform, len(true_param),
-                               visualise=True, bound_type="ellipsoid",
+                               visualise=True, bound_type="nballs",
                                n_live=1000, exp_factor=1.25)
 sampler.run()
 
