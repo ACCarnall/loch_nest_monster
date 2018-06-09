@@ -257,17 +257,17 @@ class basic_sampler(object):
         plt.ion()
         self.fig = plt.figure(figsize=(9, 8))
 
-        gs = mpl.gridspec.GridSpec(self.n_dim, self.n_dim,
+        gs = mpl.gridspec.GridSpec(self.n_dim-1, self.n_dim-1,
                                    wspace=0., hspace=0.)
 
         self.axes = []
         self.plot_live = []
         self.plot_prop = []
 
-        for i in range(self.n_dim):
-            for j in range(self.n_dim):
-                if i < j:
-                    ax = plt.subplot(gs[j,i])
+        for i in range(self.n_dim-1):
+            for j in range(1, self.n_dim):
+                if i <=  j - 1:
+                    ax = plt.subplot(gs[j-1,i])
                     ax.set_xlim(0., 1.)
                     ax.set_ylim(0., 1.)
                     ax.set_xticks([])

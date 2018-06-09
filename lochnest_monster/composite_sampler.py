@@ -2,15 +2,13 @@ from __future__ import print_function, division, absolute_import
 
 import numpy as np
 
-from .bounds import nballs, nballs_fill_frac, nballipsoid
+from .bounds import composite, nboxes_fill_frac
 from .basic_sampler import basic_sampler
 
 
-class nball_sampler(basic_sampler):
-    """ Nested sampling implementing the nballs boundary method. This 
-    uses a nearest-neighbours algorithm to draw spheres around each live
-    point reaching some fraction of the way to its kth nearest neighbour
-    then samples from within those spheres.
+class composite_sampler(basic_sampler):
+    """ Nested sampling implementing all the bounding methods I could 
+    think of!
 
     Parameters
     ----------
@@ -45,12 +43,11 @@ class nball_sampler(basic_sampler):
 
     k : int
         The kth nearest neighbour of each point is used to construct
-        the balls.
-
+        the balls, default is 5.
     """
 
     def __init__(self, lnlike, prior_trans, n_dim, n_live=400, stop_frac=0.99,
-                 verbose=True, live_plot=False, volume_fill_frac=0.99, k=1):
+                 verbose=True, live_plot=False, volume_fill_frac=0.95, k=3):
 
         basic_sampler.__init__(self, lnlike, prior_trans, n_dim, n_live=n_live,
                                stop_frac=stop_frac, verbose=verbose,
@@ -65,15 +62,15 @@ class nball_sampler(basic_sampler):
 
         """ Calculate the necessary expansion factor for the balls to
         meet the desired volume_fill_frac, this bit of code sucks """
-        self.expansion = 0.5
+        self.expansion = 5.
 
         ff = 0.
 
         while ff < self.volume_fill_frac:
-            ff = nballs_fill_frac(self.n_live, self.n_dim,
+            ff = nboxes_fill_frac(self.n_live, self.n_dim,
                                   self.expansion, k=self.k)
-
-            self.expansion += 0.05
+            print(ff, self.expansion)
+            self.expansion += 1.
 
         self.update_bound()
 
@@ -81,18 +78,14 @@ class nball_sampler(basic_sampler):
         """ Update the bounding object to draw points within. """
 
         if not self.n_samples % self.update_interval:
-            sample_no = int(10*self.update_interval/self.efficiency)
+            make_samples = int(10*self.update_interval/self.efficiency) + 1
 
-            self.bound = nballipsoid(self.live_cubes, k=self.k,
-                                     expansion=self.expansion, sample_no=sample_no) 
+            self.bound = composite(self.live_cubes, k=self.k,
+                                   nboxes_expansion=self.expansion,
+                                   make_samples=make_samples) 
+
 
     def draw_new_point(self):
         """ Select a new point from the prior within the bound. """
 
-        while True:
-            new_cube = self.bound.draw_point()
-
-            if new_cube.max() < 1 and new_cube.min() > 0:
-                break
-
-        return new_cube
+        return self.bound.draw_point()

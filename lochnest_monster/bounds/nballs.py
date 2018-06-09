@@ -60,10 +60,9 @@ class nballs(object):
         """ Calculate the  distance to the kth nearest neighbour for 
         each live point. """
 
-        nbrs = NearestNeighbors(n_neighbors=self.k+1,
-                                algorithm='ball_tree').fit(self.points)
+        nbrs = NearestNeighbors(n_neighbors=self.k+1, algorithm='ball_tree')
 
-        distances, indices = nbrs.kneighbors(self.points)
+        distances, indices = nbrs.kneighbors(self.points).fit(self.points)
 
         return distances[:,-1]
 
