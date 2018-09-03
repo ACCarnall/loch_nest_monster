@@ -2,12 +2,12 @@ from __future__ import print_function, division, absolute_import
 
 import numpy as np
 
-from .bounds import nballs, nballs_fill_frac, nballipsoid
+from .bounds import nballs, nballs_fill_frac
 from .basic_sampler import basic_sampler
 
 
 class nball_sampler(basic_sampler):
-    """ Nested sampling implementing the nballs boundary method. This 
+    """ Nested sampling implementing the nballs boundary method. This
     uses a nearest-neighbours algorithm to draw spheres around each live
     point reaching some fraction of the way to its kth nearest neighbour
     then samples from within those spheres.
@@ -39,41 +39,29 @@ class nball_sampler(basic_sampler):
     live_plot : bool
         Show a live-updating plot of the live points during sampling.
 
-    volume_fill_frac : float
-        The fraction of the volume within the mass of live points which 
-        the balls aim to fill. Defaults to 0.99 (99 percent).
+    use_box : bool
+        Also constrain samples to be drawn from an n-dimensional box
+        drawn around the live points. Defaults to False.
 
-    k : int
-        The kth nearest neighbour of each point is used to construct
-        the balls.
+    box_expansion : float
+        If also using a bounding box, the volume of the box is expanded
+        by this factor.
 
     """
 
     def __init__(self, lnlike, prior_trans, n_dim, n_live=400, stop_frac=0.99,
-                 verbose=True, live_plot=False, volume_fill_frac=0.99, k=1):
+                 verbose=True, live_plot=False, use_box=False,
+                 box_expansion=1.):
 
         basic_sampler.__init__(self, lnlike, prior_trans, n_dim, n_live=n_live,
                                stop_frac=stop_frac, verbose=verbose,
                                live_plot=live_plot)
 
-        self.k = k  # The kth nearest neighbour is used for nballs
-        self.volume_fill_frac = volume_fill_frac  # Target filling fraction
+        self.use_box = use_box
+        self.box_expansion = box_expansion
 
-        """ Update the bound every time the expected volume decreases by
-        10 percent, this is the current default, can be varied """
+        # Update the bound every time the volume decreases by 10 percent
         self.update_interval = int(0.1*self.n_live)
-
-        """ Calculate the necessary expansion factor for the balls to
-        meet the desired volume_fill_frac, this bit of code sucks """
-        self.expansion = 0.5
-
-        ff = 0.
-
-        while ff < self.volume_fill_frac:
-            ff = nballs_fill_frac(self.n_live, self.n_dim,
-                                  self.expansion, k=self.k)
-
-            self.expansion += 0.05
 
         self.update_bound()
 
@@ -81,10 +69,11 @@ class nball_sampler(basic_sampler):
         """ Update the bounding object to draw points within. """
 
         if not self.n_samples % self.update_interval:
-            sample_no = int(10*self.update_interval/self.efficiency)
+            n_to_sample = int(10*self.update_interval/self.efficiency)
 
-            self.bound = nballipsoid(self.live_cubes, k=self.k,
-                                     expansion=self.expansion, sample_no=sample_no) 
+            self.bound = nballs(self.live_cubes, n_to_sample=n_to_sample,
+                                use_box=self.use_box,
+                                box_expansion=self.box_expansion)
 
     def draw_new_point(self):
         """ Select a new point from the prior within the bound. """

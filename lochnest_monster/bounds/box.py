@@ -38,14 +38,12 @@ class box(object):
 
         result = np.ones(point.shape).astype(bool)
 
-        if result.ndim > 1:
-            for i in range(self.n_dims):
-                result[:,i] = np.min([(point[:,i] > self.lower[i]), (point[:,i] < self.upper[i])], axis=0)
+        if result.ndim == 1:
+            result = np.expand_dims(result, 0)
 
-            return result.min(axis=1)
+        for i in range(self.n_dims):
+            result[:,i] = np.min([(point[:,i] > self.lower[i]),
+                                  (point[:,i] < self.upper[i])], axis=0)
 
-        else:
-            for i in range(self.n_dims):
-                result[i] = np.min([(point[i] < self.lower[i]), (point[i] > self.upper[i])])
+        return np.squeeze(result.min(axis=1))
 
-            return result.min()

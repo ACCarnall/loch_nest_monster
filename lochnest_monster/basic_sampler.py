@@ -10,7 +10,7 @@ from scipy.misc import logsumexp
 
 
 class basic_sampler(object):
-    """ Implement a basic nested sampling process by sampling randomly 
+    """ Implement a basic nested sampling process by sampling randomly
     from the unit cube. This is very slow, it's better to use a bound!
     Also includes functions for printing progress and showing a live-
     updating plot of the sampling as it happens.
@@ -186,7 +186,7 @@ class basic_sampler(object):
 
             if self.live_plot and not self.n_samples % 50:
                 self.update_live_plot()
-            
+
             if not self.n_samples % 50:
                 self.proposed = []
 
@@ -207,9 +207,14 @@ class basic_sampler(object):
 
         self.results = {}
 
+        self.results["lnz"] = self.lnz
+        self.results["ncalls"] = self.n_calls
+        self.results["nsamples"] = self.n_samples
+        self.results["efficiency"] = self.n_samples/self.n_calls
         self.results["lnweights"] = np.array(self.lnweights) - self.lnz
         self.results["weights"] = np.exp(self.results["lnweights"])
         self.results["samples"] = np.zeros((len(self.dead_params), self.n_dim))
+        self.results["lnlike"] = self.dead_lnlike
 
         for i in range(len(self.dead_cubes)):
             self.results["samples"][i, :] = self.dead_params[i]
@@ -219,6 +224,23 @@ class basic_sampler(object):
                                    p=self.results["weights"])
 
         self.results["samples_eq"] = self.results["samples"][choices, :]
+
+    def calc_lnz_error(self, n_draws=100):
+        for i in range(n_draws):
+            draws = np.random.rand(self.n_live, self.n_samples)
+            draws_max = draws.max(axis=0)
+
+            volumes = np.zeros(self.n_samples+1)
+            volumes[0] = 1.
+
+            for i in range(self.n_samples):
+                volumes[i+1] = volumes[i]*draws_max[i]
+
+            vol_elements = (volumes[:-1] - volumes[1:])
+
+            lnz_sample = logsumexp(np.logaddexp(np.log(vol_elements), self.results["lnlike"]))
+
+            print(lnz_sample)
 
     def print_progress(self):
         """ Print the current progress of the sampler. """
@@ -282,7 +304,7 @@ class basic_sampler(object):
                     self.axes.append(ax)
                     self.plot_live.append(pl_live)
                     self.plot_prop.append(pl_prop)
-        
+
         self.fig.canvas.draw()
         plt.pause(0.01)
         plt.show(block=False)
@@ -311,6 +333,6 @@ class basic_sampler(object):
 
             self.fig.canvas.draw()
             plt.pause(0.01)
-            
+
         except KeyboardInterrupt:
-            sys.exit("killed.")        
+            sys.exit("killed.")

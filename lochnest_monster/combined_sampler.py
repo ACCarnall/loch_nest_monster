@@ -2,11 +2,11 @@ from __future__ import print_function, division, absolute_import
 
 import numpy as np
 
-from .bounds import composite, nboxes_fill_frac
+from .bounds import combined
 from .basic_sampler import basic_sampler
 
 
-class composite_sampler(basic_sampler):
+class combined_sampler(basic_sampler):
     """ Nested sampling implementing all the bounding methods I could 
     think of!
 
@@ -47,30 +47,19 @@ class composite_sampler(basic_sampler):
     """
 
     def __init__(self, lnlike, prior_trans, n_dim, n_live=400, stop_frac=0.99,
-                 verbose=True, live_plot=False, volume_fill_frac=0.95, k=3):
+                 verbose=True, live_plot=False, use_box=True,
+                 box_expansion=1.25, ell_expansion=1.25):
 
         basic_sampler.__init__(self, lnlike, prior_trans, n_dim, n_live=n_live,
                                stop_frac=stop_frac, verbose=verbose,
                                live_plot=live_plot)
 
-        self.k = k  # The kth nearest neighbour is used for nballs
-        self.volume_fill_frac = volume_fill_frac  # Target filling fraction
+        self.use_box = use_box
+        self.box_expansion = box_expansion
+        self.ell_expansion = ell_expansion
 
-        """ Update the bound every time the expected volume decreases by
-        10 percent, this is the current default, can be varied """
+        # Update the bound every time the volume decreases by 10 percent
         self.update_interval = int(0.1*self.n_live)
-
-        """ Calculate the necessary expansion factor for the balls to
-        meet the desired volume_fill_frac, this bit of code sucks """
-        self.expansion = 5.
-
-        ff = 0.
-
-        while ff < self.volume_fill_frac:
-            ff = nboxes_fill_frac(self.n_live, self.n_dim,
-                                  self.expansion, k=self.k)
-            print(ff, self.expansion)
-            self.expansion += 1.
 
         self.update_bound()
 
@@ -78,11 +67,12 @@ class composite_sampler(basic_sampler):
         """ Update the bounding object to draw points within. """
 
         if not self.n_samples % self.update_interval:
-            make_samples = int(10*self.update_interval/self.efficiency) + 1
+            n_to_sample = int(10*self.update_interval/self.efficiency) + 1
 
-            self.bound = composite(self.live_cubes, k=self.k,
-                                   nboxes_expansion=self.expansion,
-                                   make_samples=make_samples) 
+            self.bound = combined(self.live_cubes, use_box=self.use_box,
+                                  box_expansion=self.box_expansion,
+                                  ell_expansion=self.ell_expansion,
+                                  n_to_sample=n_to_sample) 
 
 
     def draw_new_point(self):
